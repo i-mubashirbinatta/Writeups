@@ -1,0 +1,165 @@
+1. Introduction
+
+The Hammer room turned out to be a multi‑layered challenge involving verification logic, authentication flows, JWT manipulation, file inclusion, and session handling.
+Although it took more time than expected, the learning experience was extremely valuable.
+
+2. Initial Attempt – Tools vs Manual Review
+
+At the start, I relied heavily on automated tools.
+Instead of helping, they wasted time because the room required manual logic analysis.
+
+✔ Key Discovery
+
+During manual review, I noticed that directories and internal content followed a specific prefix naming pattern:
+
+hmr_
+
+Understanding this prefix was important for navigating the challenge structure.
+
+3. Understanding the Email Verification Flow
+
+The next part involved analyzing the password reset / verification mechanism.
+
+✔ Problems
+
+I didn’t fully understand how the domain handled verification at first.
+
+My initial script failed because I wasn’t aware of the backend rules.
+
+✔ Rules Discovered
+
+Through analysis and the email hint, I identified the following logic:
+
+Verification code: 4 digits
+
+Code is valid for 180 seconds
+
+After 7 incorrect attempts, the session becomes invalid
+
+Session ID resets after too many wrong tries
+
+✔ Action Taken
+
+I wrote a script that respected all these constraints:
+
+Brute‑forces only within the time window
+
+Stops at 7 attempts
+
+Automatically handles session resets
+
+With this, I successfully extracted the correct verification code.
+
+4. Logging In & First Flag
+
+After verifying the code, I logged in and obtained the first flag.
+But the actual challenge began after this point.
+
+5. JWT Analysis – Missing kid Field
+
+The JWT looked normal, except:
+
+✔ Observations
+
+The kid (Key ID) was not visible in the header.
+
+Token validation showed unusual behavior on the server.
+
+This hinted that the backend was loading the secret from an external file.
+
+6. Discovering File Inclusion Vulnerability
+
+Further analysis revealed a Local File Inclusion (LFI) vulnerability connected to the JWT key loader.
+
+✔ Key Finding
+
+By manipulating the internal kid value, the server would load any local file as the signing key for the JWT.
+
+This was the breakthrough needed for privilege escalation.
+
+7. Session Persistence Problem
+
+After logging in, the session wasn’t persistent:
+
+It frequently expired
+
+Every restart required repeating the verification bypass
+
+✔ Fix
+
+I used custom header manipulation to stabilize the session and maintain a persistent login.
+
+8. Restricted Command Execution
+
+The command interface only allowed one command:
+
+ls
+
+✔ Output
+
+Listing the directory revealed a critical file:
+
+188ade1.key
+
+
+The filename strongly suggested it could be a secret key or something related to authentication.
+
+9. Getting the HS256 Secret
+
+Using the file inclusion exploit:
+
+I forced the backend to load 188ade1.key as the JWT signing secret
+
+Extracted the actual secret key
+
+Crafted a new JWT with HS256 and admin privileges
+
+✔ Steps Summary
+
+Use LFI to include 188ade1.key
+
+Extract the secret
+
+Forge a valid admin token
+
+Gain elevated access
+
+10. Getting the Final Flag
+
+With admin privileges unlocked, I accessed the restricted endpoint and retrieved the second flag.
+
+11. Additional Difficulty – Machine Timeout
+
+One of the most frustrating parts:
+
+The machine kept timing out
+
+Every restart required repeating:
+
+Verification bypass
+
+Session persistence fix
+
+Token regeneration steps
+
+Despite this, all obstacles were eventually solved.
+
+🎉 Conclusion
+
+The Hammer room offered deep practical exposure to:
+
+OTP / verification logic analysis
+
+Brute‑forcing with constraints
+
+JWT exploitation using HS256
+
+kid manipulation
+
+Local File Inclusion (LFI)
+
+Session hijacking & stabilization
+
+Scripting under time‑limited conditions
+
+A tough challenge, but absolutely worth solving.
