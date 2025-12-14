@@ -1,0 +1,63 @@
+Introduction
+I recently tackled the "Smol" room on TryHackMe. To be honest, the initial access took significantly longer than expected. This challenge was a reality check for me—it made me realize I need to brush up on my WordPress exploitation skills. However, after some trial and error, I managed to root the box. Here is my path to the solution.
+
+Phase 1: Enumeration
+I started by mapping the IP address to the domain in my local host file to ensure proper routing for the web application.
+
+Action: Added the machine IP to /etc/hosts pointing to www.smol.thm.
+
+Next, I ran WPScan to enumerate the WordPress installation. The scan revealed two critical vulnerabilities: SSRF (Server-Side Request Forgery) and XSS (Cross-Site Scripting).
+
+I focused on the SSRF vulnerability. By exploiting this, I was able to read the contents of the wp-config.php file.
+
+Finding: Inside wp-config.php, I retrieved the database credentials (username and password).
+
+Phase 2: Initial Access
+Using the credentials found in the config file, I successfully logged into the WordPress dashboard. Upon inspecting the installed plugins, I found something suspicious in the "Hello Dolly" plugin—it contained a backdoor.
+
+The backdoor allowed for command execution via a cmd= parameter.
+
+Obstacle: Executing a reverse shell wasn't straightforward. I spent a lot of time using the "hit and try" method to find a payload that worked.
+
+Solution: I eventually crafted a BusyBox reverse shell, encoded it in Base64 to bypass filters, and executed it.
+
+This successfully spawned a shell, and I gained access to the system as the www-data user.
+
+Phase 3: Lateral Movement & Privilege Escalation
+Now inside, I checked my permissions. The www-data user had very limited privileges, so I began enumerating the database.
+
+1. Cracking Diego's Password: I accessed MySQL and dumped the WordPress user data. I found a user named Diego and his password hash (PHPass format).
+
+Action: I used John the Ripper to crack the hash.
+
+Result: The password was successfully cracked (it turned out the user reused their web password for system access).
+
+Command: su diego
+
+2. SSH Pivot: While enumerating Diego's files, I discovered an id_rsa (SSH private key) belonging to another user.
+
+Action: I used this key to login via SSH into the next user account.
+
+3. Cracking the Zip File: After checking the current user’s ID and group memberships, I found a file named wordpress.old.zip. It was password-protected.
+
+Action: I used zip2john to extract the hash and then cracked it using John the Ripper.
+
+Finding: Inside the unzipped archive, I found an old wp-config.php file containing yet another password.
+
+4. Final User Switch: I used this newly found password to switch to the next user. Interestingly, from this user, I was able to switch to yet another user immediately without being prompted for a password (likely due to a misconfiguration or trust relationship).
+
+Phase 4: Root Access
+Finally, I checked the sudo capabilities for the current user.
+
+Command: sudo -l
+
+Result: The user had (ALL) NOPASSWD: ALL permissions.
+
+I executed sudo su and successfully dropped into a Root shell.
+
+Conclusion
+User Flag: Captured ✅
+
+Root Flag: Captured ✅
+
+This box was a great exercise in persistence, specifically regarding WordPress plugin enumeration and chaining multiple privilege escalation vectors (Hash cracking -> SSH keys -> Zip cracking -> Sudo rights).
