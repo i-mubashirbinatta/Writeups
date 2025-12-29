@@ -1,0 +1,42 @@
+Here is the complete walkthrough of my approach to solve this easy room:
+Start with host discovery and port scanning:{Use AttackBox for efficient response}
+  namp -p- -sV <IP>
+    found 2 open ports :
+    port 80 webserver
+    port 22 ssh
+Then comes directory enumeration:
+  First I enumerated normally without -x but nothig found where creds could be used:
+  however source code had a username in comments: R1ckxxxx
+  robots.txt had a string Wgbbzxxxxxxxx there
+  I copied both for future use.
+Then:
+  feroxbuster -w <wordlist{use raft-medium.txt one }> -u <http://IP> -x php #{-x specifies extension} 
+I found login.php portal.php
+Obviously that was a portal and then I used creds and logged in :
+  There I found command execution:
+  However, it was a straight forward command execution not a ping type or specific command type direct command execution
+
+cat was not allowed and some other commands were also not allowed
+first ingredient was found using just ls
+Here I tried to read file using cat but noooooooooope
+I had already used tac and base64 file | base64 -d in a command injection ctf challange so I used that to read files:
+tac filename 
+However, there was a clue.txt :
+  Upon reading it, it indicated to check file system
+I checked users in /home directory using ls ../../../ technique
+I found second flag in rick user in home and read it:
+  tac ../../../../../home/rick/sec*
+
+But then it took some time to find third file:
+As the /root directory was not readable to www-data
+I used find command to search for third flag
+  But I was not sure about name
+If a command's result is not displayed try to direct it's output to a file in /tmp directory: {But that command must be allowed}
+like: find / -type f -name *ing* 2>/dev/null > /tmp/resp.txt
+      Then : tac ../../../../../../tmp/resp.txt
+
+But then I tried this command sudo -l:
+I found that www-data is capable to execute all commands using sudo without password
+Then I checked /root directory and found the last flag .
+
+Thanks for reading
