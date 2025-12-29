@@ -1,0 +1,117 @@
+# 🤠 TryHackMe: Bounty Hacker Write-up
+
+![Category](Challenge)
+![Difficulty](Easy)
+![Platform](https://tryhackme.com)
+
+## 📝 Executive Summary
+**Bounty Hacker** is a CTF challenge that emphasizes the importance of thorough enumeration. 
+The path to compromise involves finding sensitive data via Anonymous FTP, 
+deducing valid credentials from text files, performing a targeted SSH brute-force attack, 
+and leveraging a misconfigured `sudo` permission on the `tar` binary for privilege escalation.
+
+---
+
+## 🛠️ Tools Used
+- **Nmap**: Network discovery.
+- **FTP Client**: File retrieval.
+- **Hydra**: Password cracking.
+- **GTFOBins**: Privilege escalation methodology.
+
+---
+
+## 1. Reconnaissance
+
+### Nmap Scan
+I initiated the engagement with a full port scan to identify open services.
+
+```bash
+nmap -p- -sV -sC <TARGET_IP>
+Results:
+
+Port 21: FTP (vsftpd 3.0.3) - Anonymous login allowed
+
+Port 22: SSH (OpenSSH 7.2p2)
+
+Port 80: HTTP (Apache 2.4.18)
+
+2. Enumeration
+Web Server (Port 80)
+I visited the web server, but it hosted a static page intended as a distraction/rabbit hole. Directory enumeration yielded no interesting results.
+
+FTP (Port 21)
+The Nmap scan indicated that Anonymous login was enabled. I connected to the FTP server to investigate.
+
+Bash
+
+ftp <TARGET_IP>
+# Name: anonymous
+# Password: <blank>
+I found two files:
+
+locks.txt: A list of strings (potential passwords).
+
+task.txt: A message signed by a user named "lin".
+
+Critical Finding: The file task.txt gave away a valid username (lin), and locks.txt provided a potential password list.
+
+3. Initial Access
+SSH Brute-Force
+With a valid username (lin) and a wordlist (locks.txt), I used Hydra to brute-force the SSH service.
+
+Note: I initially tried generic usernames from SecLists, but after analyzing task.txt, I switched to the targeted user "lin".
+
+Bash
+
+hydra -l lin -P locks.txt <TARGET_IP> ssh
+Result: Hydra successfully cracked the password. I logged in via SSH.
+
+Bash
+
+ssh lin@<TARGET_IP>
+Flag: Retrieved user.txt from the user's home directory.
+
+4. Privilege Escalation
+Sudo Rights Enumeration
+I checked the user's sudo privileges to see if any commands could be run as root without a password.
+
+Bash
+
+sudo -l
+Output:
+
+Plaintext
+
+User lin may run the following commands on bountyhacker:
+    (root) /bin/tar
+The user lin can run tar as root. I consulted GTFOBins and found that tar has a feature that allows command execution, 
+which can be abused to break out of restricted environments.
+
+The Exploit
+I executed the following command to spawn a root shell:
+
+Bash
+
+sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh
+Result: The prompt changed to #. I successfully gained root access and read root.txt.
+
+🔍 Technical Breakdown: How the tar Exploit Works
+It might look like magic, but here is exactly why this command gives us a root shell:
+
+sudo: We run the command with root privileges.
+
+tar: The binary we are abusing.
+
+-cf /dev/null /dev/null: This tells tar to Create (-c) a File (-f). We direct the output to /dev/null (the void) 
+because we don't actually care about creating a real archive.
+
+--checkpoint=1: This is the key. It tells tar to display a progress message (or perform an action) every 1 record (file) processed.
+
+--checkpoint-action=exec=/bin/sh: This specifies what action to take when the checkpoint is reached. We are telling tar: "Every time you hit a checkpoint, execute /bin/sh".
+
+Since tar is running as root (via sudo), the /bin/sh command it spawns also inherits those root privileges.
+
+🏁 Conclusion
+This box was an excellent exercise in "connecting the dots." 
+It reinforced that brute-forcing should be targeted based on gathered intelligence (username from FTP) rather than random guessing. 
+Finally, it demonstrated how dangerous it is to allow sudo rights on binaries that have shell-escape features like tar.
