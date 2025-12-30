@@ -1,0 +1,145 @@
+# 🕵️ TryHackMe: Agent Sudo Write-up
+
+![Category](Brute FOrcing and Cracking)
+![Difficulty](Easy)
+![Platform](https://tryhackme.com)
+
+## 📝 Executive Summary
+**Agent Sudo** is a CTF challenge that requires a mix of web enumeration, brute-forcing, digital forensics (Steganography), and OSINT. 
+The final privilege escalation exploits a specific security bypass vulnerability in `sudo` (CVE-2019-xxxxx) allowing a restricted user to execute commands as root.
+
+---
+
+## 🛠️ Tools Used
+- **Nmap**: Service enumeration.
+- **Burp Suite / User-Agent Switcher**: Web header manipulation.
+- **Hydra**: FTP Brute-forcing.
+- **Binwalk & Steghide**: Steganography extraction.
+- **John the Ripper**: Zip password cracking.
+- **Google Lens / OSINT Tools**: Information gathering.
+
+---
+
+## 1. Reconnaissance
+
+### Nmap Scan
+I began with a standard service scan.
+
+```bash
+nmap -p- -sV <TARGET_IP>
+Open Ports:
+
+21: FTP (vsftpd 3.0.3)
+
+22: SSH (OpenSSH 7.6p1)
+
+80: HTTP (Apache 2.4.29)
+
+2. Web Enumeration (User-Agent Spoofing)
+Visiting the website on port 80 displayed a message prompting to "change your user agent" to access the site. 
+The hint suggested using a "Codename".
+
+Using a browser extension (User-Agent Switcher), I changed my User-Agent to 'C'.
+
+Reasoning: The hints implied the codename was 'C', likely referring to the name "Chris".
+
+After switching the User-Agent, I gained access to a page confirming that Chris is a valid user and hinting at weak passwords. 
+There was also a mention of Agent J.
+
+3. Brute-Forcing FTP
+With the username chris confirmed, I targeted the FTP service using Hydra and the rockyou.txt wordlist.
+
+$hydra -l chris -P /usr/share/wordlists/rockyou.txt <TARGET_IP> ftp
+Success: Password found: crxxxxx.
+
+I logged into FTP and retrieved three files:
+
+message.txt (Hinted at hidden data)
+
+cutie.png
+
+cute-alien.jpg
+
+4. Steganography Chain
+This phase required chaining multiple extraction techniques.
+
+Step A: Analyzing cutie.png
+steghide is incompatible with PNGs, and strings revealed a potential text file inside. I used binwalk to extract hidden data.
+
+$binwalk -e cutie.png
+Result: A password-protected ZIP file containing To_agentR.txt.
+
+Step B: Cracking the Zip
+I used zip2john to convert the zip file to a hash and then cracked it with John the Ripper.
+
+zip2john 8702.zip > zip.hash
+john zip.hash
+Result: Password alien. Inside the text file, I found a Base64 encoded string: QXJlY... Decoding this string gave me: ArXXxx (This looked like a passphrase).
+
+Step C: Analyzing cute-alien.jpg
+I used the decoded string as the passphrase for steghide on the second image.
+
+
+$steghide extract -sf cute-alien.jpg -p Ar-----
+Result: Extracted message.txt. Contents:
+
+Agent Name: James (Agent J)
+
+Password: hackxxxxxxxxxx
+
+5. Initial Access & OSINT
+I used the credentials found in the stego image to log in via SSH.
+
+$ssh james@<TARGET_IP>
+User Flag: Retrieved user.txt.
+
+OSINT Task
+I found another image in the user directory. 
+I performed a Reverse Image Search (using Yandex/Google Lens) which identified the alien from a specific movie/incident. 
+Following the hint regarding Fox News, I searched for the incident on their site to find the headline answer: Roswell....
+
+6. Privilege Escalation (CVE-2019-xxxxx)
+Sudo Rights Enumeration
+I checked the sudo privileges for user james.
+
+$sudo -l
+Output:(included)
+(ALL, !root) /bin/bash
+
+Analysis: The configuration states that james can run /bin/bash as ANY user (ALL) EXCEPT root (!root).
+
+The Vulnerability: CVE-2019-xxxxx
+This is a logic bug in sudo versions prior to 1.8.28. Even though the configuration explicitly forbids running as root, 
+we can bypass this by specifying the User ID -1.
+
+The Exploit
+I executed the following command:
+
+Bash
+
+sudo -u#-1 /bin/bash
+Result: The security check was bypassed, and I was granted a root shell.
+
+$root@agent-sudo:~# cat /root/root.txt
+🧠 Technical Breakdown: Why sudo -u#-1 works?
+The vulnerability lies in how sudo parses user IDs.
+
+The Restriction: The !root entry in the sudoers file prevents the user from running commands as user ID 0 (which is root).
+
+The Bypass: When we pass -u#-1, we are telling sudo to run as User ID -1.
+
+The Integer Overflow/Conversion:
+
+sudo accepts the ID -1. Since -1 is not 0, it passes the "Not Root" check defined in the configuration.
+
+However, strictly speaking, User ID -1 is invalid in Linux. 
+When the system converts this signed integer -1 into an unsigned integer (which system calls often use for IDs), 
+it wraps around or is treated by the underlying setresuid system call as User ID 0.
+
+Effectively, we trick sudo into thinking "He's not asking to be root (0), he's asking to be -1", but the system interprets "-1" as "Root".
+
+🏁 Conclusion
+Agent Sudo provides a comprehensive challenge involving lateral thinking. 
+The steganography required a multi-step approach (extracting a password to unlock a password to unlock a file). 
+The privilege escalation served as a practical demonstration of CVE-2019-xxxxx, showing that even explicit deny rules (!root) can be bypassed 
+if the underlying software fails to handle edge-case integers correctly.
