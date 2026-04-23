@@ -1,0 +1,82 @@
+# TryHackMe: Injectics Writeup
+Date: April 23, 2026
+
+Author: Khawaja Mubashir
+
+Difficulty: Intermediate
+
+Focus: Mainly on Injection Attacks i.e. SQL Injection (Blind/Bypass), Database Manipulation, and Server-Side Template Injection (SSTI) to RCE.
+
+## 1. Enumeration
+Service Scanning
+The initial Nmap scan revealed two primary entry points:
+
+Port 22: SSH
+
+Port 80: HTTP (Apache Web Server)
+
+Web Reconnaissance
+Initial inspection of the website showed a standard "Leaderboard" or "Hall of Fame" application.
+
+Directory Fuzzing: Discovered a phpmyadmin instance (suspected honeypot) and several internal files.
+
+Information Disclosure: composer.json was discovered, revealing the use of the Twig templating engine.
+
+Log Exposure: Found mail.log, which contained sensitive recovery credentials for superadmin and a secondary user. A note in the logs indicated these credentials were valid only in the event of a database crash or table deletion.
+
+## 2. Exploitation
+SQL Injection (Authentication Bypass)
+The application featured two login portals: a standard user login and a hidden admin portal (/adminlogin007.php). Source code analysis indicated a blacklist filter for keywords like OR, UNION, and '.
+
+By capturing the request in Burp Suite and applying a bypass payload to both the username and password fields, I successfully bypassed the authentication on simple login form:
+Payload: ' OR 'a'='a
+
+This granted access to a Dev Dashboard, which allowed for the editing of Leaderboard records.
+
+Triggering the Recovery Mechanism
+Knowing that the superadmin credentials found in mail.log only worked if the database was compromised, I utilized the "Edit Record" functionality to inject a destructive SQL command:
+Injection: 12; DROP TABLE users;
+
+The database crashed, and after a 2-minute automated server restart, the system reverted to the recovery state. I was then able to log in to the Admin Panel using the superadmin credentials found earlier.
+
+SSTI to Remote Code Execution (RCE)
+Upon entering the Admin Panel, I noticed the username was reflected in the "Welcome" header. Testing the "Profile Update" feature:
+
+Input: {{7*7}}
+
+Output: Welcome 49
+
+Result: Confirmed SSTI in the Twig engine.
+
+To escalate this to RCE, I utilized a specialized Twig payload to call the passthru function:
+{{ ['id','']|sort('passthru') }}
+
+After confirming execution, I initiated a reverse shell to my attacker machine.
+
+## 3. Post-Exploitation
+User Flag: Located immediately upon gaining access to the Admin Panel.
+
+Root/System Flag: After spawning the reverse shell, I used the find command to locate the final flag:
+find / -name "flag*" 2>/dev/null
+
+Vulnerability Chaining Summary
+This room demonstrated a sophisticated attack chain where multiple "low" or "medium" issues were combined to achieve full system compromise:
+
+Information Disclosure + Logical Flaw: Finding recovery credentials that were conditionally active.
+
+SQL Injection (Bypass): Gaining initial access to a restricted dashboard.
+
+SQL Injection (Destructive): Using the access to drop tables, forcing the application into its "Recovery Mode."
+
+Credential Reuse: Using the previously discovered logs to log in as superadmin.
+
+SSTI to RCE: Leveraging template reflection in the admin profile to execute system commands and gain a shell.
+
+Tools Used
+Rustscan/Nmap: Network mapping.
+
+FFUF: Directory discovery.
+
+Burp Suite: Request manipulation and filter bypass.
+
+Netcat: Reverse shell listener.
